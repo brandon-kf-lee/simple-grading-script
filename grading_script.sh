@@ -1,73 +1,143 @@
 #!/bin/bash
 
-###########################################################################################
-# grading_script.sh                                                                       #
-# Bash script to automate grading for CPSC 350 as much as possible. Takes in name of      #
-# section & professor and loops through entire directory and unzips each submission into  #
-# a temporary folder                                                                      #
-#                                                                                         #
-# author: Brandon Lee                                                                     #
-#                                                                                         #
-# 09/23/2023 Modified from grading_script_h8.sh (CENG 231/L)                              #
-###########################################################################################
+#############################################################################################
+# grading_script.sh                                                                         #
+# Bash script to automate grading for CPSC 350 as much as possible. Takes in name of        #
+# section & professor and loops through entire directory and unzips each submission into    #
+# a temporary directory                                                                     #
+#                                                                                           #
+# This file must be in the parent directory of all the other files (like the temporary      #
+# directory & assignments directory). The desired grader input file must be in inside its   #
+# appropriate assignment directory                                                          #
+#                                                                                           #
+# author: Brandon Lee                                                                       #
+#                                                                                           #
+# 09/23/2023 Modified from grading_script_h8.sh (CENG 231/L)                                #
+# 12/22/2023 Added QoL improvements: auto compiling, auto grader input file insertion,      # 
+#                                    better command line handling                           #
+#############################################################################################
 
+#--------------------------------------Variables--------------------------------------
+HWDIR=''    #[a]ssignment number
+INP=''      #desired [c]ommand line inputs when running student code
+GRADIN=''   #[g]rader input file name
+START='0'   #start [p]oint
+SECTION=''  #[s]ection number (also the same name as the dir. holding the section's submissions)
 
-#Command Line Arguments
-HW=$1
-SECTION=$2
-# TODO: Not working
-start_ind=$3 #Used to start at a specific student index based on the excel sheet row number (student's position on the excel sheet is ["students" index + 2])
+#--------------------------------------Functions--------------------------------------
+#Prints available flags to make script work
+#parameters: none
+#returns: none
+printUsage(){
+  echo "Usage: $(basename "$0") -a <HWDIR> -s <SECTION> [-g <GRADIN>] [-c \"<INP>\"] [-p <START>] [-h]"
+  echo "Options:"
+  echo "  -a <HWDIR>     Specify a relative path to the homework directory."
+  echo "  -s <SECTION>   Specify the class section's directory name within <HWDIR>."
+  echo "  -g <GRADIN>    (Optional) Specify the grader's input file name."
+  echo "  -c <INP>       (Optional) Specify any desired command line inputs when running student code."
+  echo "                 Note: These inputs will be the student's executable's commandline arguments"
+  echo "  -p <START>     (Optional) Specify the starting point for processing files (processes alphabetically)."
+  echo "                 Note: Program will start at the beginning of the directory if p is not set"
+  echo "  -h             Display this help message."
+  echo ""
+  echo "Example: $(basename "$0") -a ../A1 -s 01-Stevens -g input.txt -c \"input.txt\" -p doejohn"
+  echo "         $(basename "$0") -a ../A5 -s 02-Linstead"
 
-HWDIR="./$HW/$SECTION"               #Path to hw solution dir.
-TEMPDIR="./GradingBuffer"
+}
 
-#Allows for no command line arguments (defaults to first student on list)
-if [ $# -lt 1 ]; then
-  start_ind=0
-elif [ $# -lt 2 ]; then
-  let start_ind=$3-2
+#The simple compile command to compile a student's assignment
+#parameters: $1: the student's directory
+#returns: none
+compile(){
+  cp ./$HWDIR/$GRADIN $1           #Copy grader input file into the student's dir.
+  g++ $dir/*.cpp -o $1/output.out  #Assume all .cpp files must be compiled together
+}
+
+#--------------------------------------Main script--------------------------------------
+#Automatically print usage if no flags given
+if [ $# -eq 0 ]; then
+  printUsage
+  exit 0
 fi
 
-i=$start_ind
-#Loop for each student
-for file in $HWDIR/*; do
+#a - [a]ssignment number
+#c - desired [c]ommand line inputs when running student code
+#g - [g]rader input file name
+#h - [h]elp
+#p - start [p]oint
+#s - [s]ection number (also the same name as the dir. holding the section's submissions)
+while getopts 'a:c:g:hp:s:' flag; do
+  case "$flag" in
+    a) HWDIR="${OPTARG}" ;;
+    c) INP="${OPTARG}" ;;
+    g) GRADIN="${OPTARG}" ;;
+    h) printUsage
+       exit 0 ;;
+    p) START="${OPTARG}" ;;
+    s) SECTION="${OPTARG}" ;;
+  esac
+done
 
-  let "row=$i+2"         #Row on excel sheet
-  i=$i+1
+#Create a temporary dir. called GradingBuffer (and discard error msg. if "GradingBuffer" already exists)
+mkdir ./GradingBuffer > /dev/null 2>&1
+TEMPDIR="./GradingBuffer"
 
-  rm -r $TEMPDIR/*
+#Loop through each student's submission
+startProcessing=false
+for file in ./$HWDIR/$SECTION/*; do
+  
+  #If the flag is set, loop through the dir. until the given student is found
+  if [ "$startProcessing" != true ]; then
+    if [ $START != '0' ]; then
+      if [[ $(basename $file) != $START* ]]; then  #i.e doejohn_foo_bar.zip = doejohn, so doejohn's file was found
+        continue
+      else
+        startProcessing=true
+      fi
+    fi
+  fi
+
+  rm -r --interactive=never $TEMPDIR/*       #Remove all, do not ask about removing write-protected files
   unzip $file -d $TEMPDIR
 
   echo "------------------------------------------------------------"
-  echo "ZIP file name: $file, row $row"
-  echo "(Desired convention: LastName_FirstInitial_$HW.zip)"
+  echo "ZIP file name: $file"
   echo "------------------------------------------------------------"
 
-  #View .txt file before compile
-#  less $REPO/$stud/hw$HW/README
+  #Find the dir. that holds code (students may have their code in a folder inside the unzipped folder)
+  #Breakdown: finds a file (-type f) by finding the word "main" inside any of the files using grep (-exec grep)
+  #           grep will find the file (-l) that contains "int main" or (-e) "void main" on the current file being 
+  #           processed by find ({}) while supressing output (-q)
+  #           send the output to xargs (-print and |) to get the file's parent (dirname) and quit after the first hit (-quit)
+  dir=$(find $TEMPDIR -type f -exec grep -l -q -e "int main" -e "void main" {} \; -print -quit | xargs dirname)
 
-  #Compile & run program
-#  dir=$REPO/$stud/hw$HW                                     #Path to executable
+  if [ -n "$dir" ]; then
+    compile $dir
 
+    if [ -e $dir/output.out ]; then
+      #Pop to student's dir., run, then return to original dir (while supressing output of popd).
+      #This is necessary to simulate how a student would run their progarm (running with input file in 
+      #the same dir., keeping all output files contained in the same dir.)
+      pushd $dir ; ./output.out $INP ; popd > /dev/null
+    else
+      echo "Uncompilable or does not exist. Exiting."
+      exit 1
+    fi
+    
+  else
+    echo "main method not found, check folder if there is any code. Exiting."
+    exit 1
+  fi
 
-
-#  gcc -c -g -ansi -Wall $dir/Image.c -o $dir/Image.o           #Compile
-#  gcc -c -g -ansi -Wall $dir/PhotoLab_server.c -o $dir/PhotoLab_server.o
-#  gcc $dir/PhotoLab_server.o $dir/Image.o -o $dir/PhotoLab_server
-
-#  gcc -g -ansi -Wall $dir/PhotoLab_client.c -o $dir/PhotoLab_client
-
-#  if [ -e $program ]; then
-#    cd $REPO/$stud/hw$HW ; valgrind --leak-check=full ./$NAME
-#    cd $REPO/$stud/hw$HW ; ./$NAME\_server
-    echo "--------------------------------------------------"
-    echo "Unzip completed: Press return to continue"
-    echo "--------------------------------------------------"
-    read cont
-#  else
-#    echo "$stud's $NAME.c uncompilable or does not exist, exiting."
-#    exit
-#  fi
+  echo "--------------------------------------------------"
+  echo "Student complete: Press return to continue"
+  echo "--------------------------------------------------"
+  read cont
 
 done
 
+if [ "$startProcessing" != true ]; then
+  if [ $START != '0' ]; then
+      echo "Entire directory traversed without finding the desired student. Please check the spelling."
+  fi
+fi
