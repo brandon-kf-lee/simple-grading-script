@@ -13,7 +13,8 @@ Each assignment is separated into folders with subfolders within that separate b
 ### Limitations
 The script assumes that the assignment has all required files within a single folder and will be compiled together.\
 Have only tested the -p option with student zip files formatted with names ordered alphabetically, as bulk downloaded through Canvas.\
-Each student must have a main method declared as "void main" or "int main", may error out if the main method is declared differently.
+Each student must have a main method declared as "void main" or "int main", may error out if the main method is declared differently.\
+Script may not be able to find a zip file if there is a space in the name.
 
 ### Notes
 If needed the grader's input file can be copied from the appropriate assignment directory into the current student's temporary directory using -g. See Usage for more information.

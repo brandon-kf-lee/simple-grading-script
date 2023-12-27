@@ -89,7 +89,10 @@ for file in ./$HWDIR/$SECTION/*; do
   #If the flag is set, loop through the dir. until the given student is found
   if [ "$startProcessing" != true ]; then
     if [ $START != '0' ]; then
-      if [[ $(basename $file) != $START* ]]; then  #i.e doejohn_foo_bar.zip = doejohn, so doejohn's file was found
+      #Set variables to all lowercase, then compare
+      current=$(tr '[:upper:]' '[:lower:]' <<< $(basename $file))
+      desired=$(tr '[:upper:]' '[:lower:]' <<< "$START")
+      if [[ $current != $desired* ]]; then  #i.e doejohn_foo_bar.zip = doejohn, so doejohn's file was found
         continue
       else
         startProcessing=true
